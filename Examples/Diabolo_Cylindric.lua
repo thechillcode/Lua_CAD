@@ -2,15 +2,12 @@
 -- draw a simple diabolo not with half spheres but zylinders at the ends
 
 require "lib_cad"
-require "lib_dir"
-
-local path = dir.get_working_dir()
 
 local height = 60/2
 local radius_bottom = 50/2
 local radius_middle = 20/2
 local thickness = 10/2
-local frags = 3
+local frags = 6
 
 if #arg > 0 then
 	height = arg[1]
@@ -25,7 +22,7 @@ local h = height
 local alpha = math.atan((h/2)/(radius_bottom-radius_middle))
 local alpha_deg = tonumber(string.format("%.2f",math.deg(alpha)))
 
-local cad_file = path.."\\Diabolo_Cylindric_[h="..height..",r1="..radius_bottom..",r2="..radius_middle..",d="..thickness..",frag="..frags..",angle="..alpha_deg.."].stl"
+local cad_file = "Diabolo_Cylindric_[h="..height..",r1="..radius_bottom..",r2="..radius_middle..",d="..thickness..",frag="..frags..",angle="..alpha_deg.."].stl"
 
 print("Output = "..cad_file)
 

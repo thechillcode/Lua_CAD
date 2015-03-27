@@ -9,9 +9,6 @@
 --]]-----------------------------------
 
 require "lib_cad"
-require "lib_dir"
-
-local dir = dir.get_working_dir()
 
 -- input variables
 local side = 110
@@ -41,7 +38,7 @@ local angle_deg = tonumber(string.format("%.2f",math.deg(angle)))
 print("Max Angle = "..angle_deg.." deg")
 
 -- output file
-local cad_file = dir.."\\Pyramid_Cut_["..side..","..height..","..side_inner..","..angle_deg.."-deg].stl"
+local cad_file = "Pyramid_Cut_["..side..","..height..","..side_inner..","..angle_deg.."-deg].stl"
 print("Output file: "..cad_file)
 
 -- calc distance of second pyramid
@@ -67,14 +64,16 @@ local pyr = cad.pyramid(0,0,0, side, height)
 local pyr_cut_1 = cad.pyramid(d_x_cut,d_x_cut,0, cut_side, cut_h)
 
 local pyr_cut_2 = cad.polygon(0,0, {{0,0},{side_inner,0},{side_inner/2,height_inner}})
-	:linearextrude(side)
+	:linear_extrude(side)
 	:rotate(0,0,0, 90,0,0)
 	:translate(d_x,side,d_h)
 local pyr_cut_3 = cad.polygon(0,0, {{0,0},{height_inner,side_inner/2},{0,side_inner}})
-	:linearextrude(side)
+	:linear_extrude(side)
 	:rotate(0,0,0, 0,-90,0)
 	:translate(side,d_x,d_h)
 	
 local pyr_cut = pyr - (pyr_cut_1 + pyr_cut_2 + pyr_cut_3)
 
 pyr_cut:export(cad_file)
+
+pyr_cut:export(cad_file..".obj", {128,240,5})
