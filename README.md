@@ -6,6 +6,11 @@ Supported file exports are: dxf, svg, stl, obj, wrl
 The Lua CAD library creates scad code which is then used by OpenSCAD to create dxf, svg or an stl file.
 If the object should have a specific color then Lua CAD can take an stl file and convert it to obj or wrl with color.
 
+Main Features:
+* using cad objects
+* STL to WRL converter with color
+* STL to OBJ converter with color
+
 Installation:
 * copy all files to your Lua Home Directory
 * Install OpenSCAD if not already installed
