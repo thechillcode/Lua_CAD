@@ -7,7 +7,7 @@ The Lua CAD library creates scad code which is then used by OpenSCAD to create d
 If the object should have a specific color then Lua CAD can take an stl file and convert it to obj or wrl with color.
 
 Main Features:
-* using cad objects
+* using CAD objects
 * STL to WRL converter with color
 * STL to OBJ converter with color
 
