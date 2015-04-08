@@ -112,13 +112,14 @@ end
 --[[------------------------------------------
 	function <dxf>:addlayer(name)
 	
+	colorindex := 0=black, 1=red, ... (http://sub-atomic.com/~moses/acadcolors.html) according to AutoCAD Color Index (ACI)
 	style := CONTINUOUS
 	returns dxf object or raises an error
 --]]------------------------------------------
-dxf_index.addlayer = function(obj, name, style)
+dxf_index.addlayer = function(obj, name, colorindex, style)
 	if (name == 0) then error("Layer name cannot be: "..name) end
 	obj.layers = obj.layers or {}
-	table.insert(obj.layers, {NAME=name, STYLE=(style or "CONTINUOUS")})
+	table.insert(obj.layers, {NAME=name, COLORINDEX = (colorindex or "0"), STYLE=(style or "CONTINUOUS")})
 	return obj
 end
 
@@ -251,7 +252,7 @@ $NAME
 70
 64
 62
-1
+$COLORINDEX
 6
 $STYLE
 ]]
@@ -283,7 +284,7 @@ $TEXT
  7
 $FONT
  72
-4
+1
 ]]
 local mtext_add = [[  0
 MTEXT
@@ -351,7 +352,7 @@ dxf_index.save = function(obj, dxf_file)
 	end
 	-- write vector
 	f:write(os_header)
-	f:write(obj.svector)
+	--f:write(obj.svector)
 	if (obj.lines) then
 		for i,v in ipairs(obj.lines) do
 			local sline = string.gsub(line_add, "%$(%w+)", v)

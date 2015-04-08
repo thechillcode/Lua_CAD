@@ -12,7 +12,7 @@ require "lib_vector"
 geometry = {}
 
 --[[------------------------------------------
-	triangle_pionts_from_sides(side_a, side_b, side_c)
+	function geometry.gettrianglefromsides(side_a, side_b, side_c)
 	
 	calc triangle when 3 sides are given
 
@@ -23,7 +23,7 @@ geometry = {}
 	
 	returns A,B,C, alpha,beta,gamma
 --]]------------------------------------------
-geometry.get_triangle_from_sides = function(side_a, side_b, side_c)
+geometry.gettrianglefromsides = function(side_a, side_b, side_c)
 
 	local alpha = math.acos((((side_b*side_b)+(side_c*side_c)-(side_a*side_a))/(2*side_b*side_c)));
 	
@@ -36,7 +36,7 @@ end
 
 
 -- function to draw pyramid
-geometry.get_pyramid_circumcenter = function(length, height)
+geometry.getpyramidcircumcenter = function(length, height)
 	-- calc circumcenter point
 	-- calc side len half
 	local len_2 = length/2
@@ -49,7 +49,7 @@ geometry.get_pyramid_circumcenter = function(length, height)
 	return height-d
 end
 
-geometry.get_pyramid_innercircumcenter = function(length, height)
+geometry.getpyramidinnercircumcenter = function(length, height)
 	-- calc innercircumcenter point
 	local beta = math.atan((2*height)/length)
 	local alpha = beta/2
@@ -59,7 +59,7 @@ end
 
 
 -- x1,y1 and x2,y2 are the vector, width is the hight from the middle of the vector to radius
-geometry.get_radius_from_circle_segment = function(x1, y1, x2, y2, width)
+geometry.getradiusfromcirclesegment = function(x1, y1, x2, y2, width)
 	local s_vec = {x1-x2, y1-y2}
 	local s_vec_len = math.sqrt((s_vec[1]*s_vec[1]) + (s_vec[2]*s_vec[2]))
 	-- calc radius
@@ -78,11 +78,17 @@ geometry.get_radius_from_circle_segment = function(x1, y1, x2, y2, width)
 	return rp, radius
 end
 
--- returns points following a belly function
-geometry.belly = function(x1, y1, x2, y2, dist, circle_seg)
+--[[------------------------------------------
+	function geometry.getcirclesegment(x1, y1, x2, y2, distance [, circle_seg])
+	
+	get points following a circle between points 1 and 2 with distance as the maximum belly
+	
+	returns a table with points
+--]]------------------------------------------
+geometry.getcirclesegment = function(x1, y1, x2, y2, dist, circle_seg)
 	local circle_seg = circle_seg or 120
 	local angle_seg = 360/circle_seg
-	local rp, radius = geometry.get_radius_from_circle_segment(x1, y1, x2, y2, dist)
+	local rp, radius = geometry.getradiusfromcircle_segment(x1, y1, x2, y2, dist)
 		
 	local v1 = vector(x1-rp[1], y1-rp[2])
 	local v2 = vector(x2-rp[1], y2-rp[2])
@@ -108,9 +114,13 @@ geometry.belly = function(x1, y1, x2, y2, dist, circle_seg)
 	return t_points
 end
 
--- get rounding center of three points (two vectors with one center points)
--- points have to be in counter clock direction
-geometry.get_round_center = function(x1,y1, x2,y2, x3,y3, radius, outside)
+--[[------------------------------------------
+	function geometry.getroundcenter(x1,y1, x2,y2, x3,y3, radius, outside)
+	
+	get rounding center of three points (two vectors with one center points)
+	points have to be in counter clock direction
+--]]------------------------------------------
+geometry.getroundcenter = function(x1,y1, x2,y2, x3,y3, radius, outside)
 	local outside = outside or false
 	-- calc vecs
 	local vec_1 = vector(x1-x2, y1-y2)
@@ -142,17 +152,17 @@ geometry.get_round_center = function(x1,y1, x2,y2, x3,y3, radius, outside)
 end
 
 --[[------------------------------------------
-	function round_corner(x1,y1, x2,y2, x3,y3, radius, segments)
+	function geometry.roundcorner(x1,y1, x2,y2, x3,y3, radius, segments)
 	
 	returns points to use instead of the middle point e.g. {x,y},{x,y}
 --]]------------------------------------------
-geometry.round_corner = function(x1,y1, x2,y2, x3,y3, radius, segments)
+geometry.roundcorner = function(x1,y1, x2,y2, x3,y3, radius, segments)
 	local segments = segments or 120
 	local seg_rad = (2*math.pi)/segments
 	
 	local outside = false
 	if radius < 0 then outside = true end
-	local A,B,D,gamma = geometry.get_round_center(x1,y1, x2,y2, x3,y3, radius, outside)
+	local A,B,D,gamma = geometry.getroundcenter(x1,y1, x2,y2, x3,y3, radius, outside)
 	
 	local vec_ab = B-A
 	local vec_ad = D-A
@@ -194,7 +204,7 @@ end
 -- Geometric Objects
 
 -- returns the coordinates of a tetrahedron with equal sides
-geometry.tetrahedron = function(side)
+geometry.gettetrahedron = function(side)
 	local A = {0,0,0}
 	local B = {side,0,0}
 	-- calc C

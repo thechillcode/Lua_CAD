@@ -29,7 +29,6 @@ return openscad_settings
 --]=]
 
 require "lib_geometry" -- includes lib_vector
-require "lib_dxf"
 local oscad_settings = require "lib_cad_settings"
 
 local default_segments = 12
@@ -138,7 +137,7 @@ end
 	note angles are the outer angles measured
 	special functions:
 		radius: radius one edge arg {radius [, segments]}, replaces current point with radius
-		belly: draw a belly between current and next point {distance [, segments]}
+		belly: draw a belly between current and next point, the belly function follows a circle {distance [, segments]}
 		
 	Note: if using special function t_paths will not work
 --]]------------------------------------------
@@ -167,10 +166,10 @@ local polygon_raw = function(x,y, t_points, t_paths)
 end
 local t_fname = {
 	["radius"] = function(pre, cur, nex, t_param)
-		return geometry.round_corner(pre[1],pre[2], cur[1],cur[2], nex[1],nex[2], t_param[1], t_param[2])
+		return geometry.roundcorner(pre[1],pre[2], cur[1],cur[2], nex[1],nex[2], t_param[1], t_param[2])
 	end,
 	["belly"] = function(pre, cur, nex, t_param)
-		local tp = geometry.belly(cur[1],cur[2], nex[1],nex[2], t_param[1], t_param[2])
+		local tp = geometry.getcirclesegment(cur[1],cur[2], nex[1],nex[2], t_param[1], t_param[2])
 		table.insert(tp, 1, cur)
 		return tp	
 	end,
@@ -209,11 +208,11 @@ end
 --]]--------------------------------------------------------------------------------
 
 --[[----------------------------------------
-	function cad.rect_round(x, y, width, height, radius [, center])
+	function cad.rectround(x, y, width, height, radius [, center])
 	
 	draw rectangle width given width and height and rounded edges according to radius
 --]]----------------------------------------
-function cad.rect_round(x,y, width,height, radius, center)
+function cad.rectround(x,y, width,height, radius, center)
 	if center then
 		x = x-width/2
 		y = y-height/2
@@ -228,11 +227,11 @@ function cad.rect_round(x,y, width,height, radius, center)
 end
 
 --[[----------------------------------------
-	function cad.rect_chamfer(x, y, width, height, chamfer [, center])
+	function cad.rectchamfer(x, y, width, height, chamfer [, center])
 	
 	draw rectangle width given width and height and chamfered edges
 --]]----------------------------------------
-function cad.rect_chamfer(x,y, width,height, chamfer, center)
+function cad.rectchamfer(x,y, width,height, chamfer, center)
 	if center then
 		x = x-width/2
 		y = y-height/2
@@ -271,14 +270,14 @@ function cad.longhole(x1,y1, x2, y2, radius)
 end
 
 --[[------------------------------------------
-	function cad.longhole_rel(x, y, dx, dy, radius)
+	function cad.longholerelative(x, y, dx, dy, radius)
 	
 	x,y: first circle hole
 	dx,dy: coordinates of the second hole relative to x and y
 
 	draws a long hole
 --]]------------------------------------------
-function cad.longhole_rel(x, y, dx, dy, radius)
+function cad.longholerelative(x, y, dx, dy, radius)
 	return cad.longhole(x,y, x+dx, y+dy, radius)
 end
 
@@ -409,9 +408,9 @@ end
 	v_valign = vertical alignment for the text. Possible values are "top", "center", "baseline" and "bottom". Default is "baseline".
 
 --]]------------------------------------------------------------------------------------
-function cad.text_3D(x,y,z, text, height, depth, font, style, h_align, v_align)
-	local obj = cad_obj():text(0,0,0, text, height, font, style, h_align, v_align)
-		:linear_extrude(depth or 5)
+function cad.text3d(x,y,z, text, height, depth, font, style, h_align, v_align)
+	local obj = cad.text(0,0,0, text, height, font, style, h_align, v_align)
+		:linearextrude(depth or 5)
 		:translate(x,y,z)
 	return obj
 end
@@ -474,21 +473,88 @@ end
 cad_meta.__index.clone = cad_meta.__index.copy
 
 --[[----------------------------------------
-	function <cad>:set_circle_fragments(num)
+	function <cad>:setcirclefragments(num)
 	
 	optional $fn and $fs can be set (http://en.wikibooks.org/wiki/OpenSCAD_User_Manual/Other_Language_Features#Special_variables)
 --]]----------------------------------------
-cad_meta.__index.set_circle_fragments = function(obj, fn)
+cad_meta.__index.setcirclefragments = function(obj, fn)
 	obj.segments = fn
 	return obj
 end
 
 --[[----------------------------------------
 	function <cad>:export(file [, color [, verbose] ])
+	function <cad>:export(<file>.svg [, {width,height,{color_fill},{color_stroke},stroke_width} [, verbose] ])
 	
-	Export to dxf, stl or obj with color color = {r,g,b}
+	Export 2D: dxf, svg
+	Export 3D: stl
+	Export 3D color: wrl, x3d, obj
+	
+	Color is 8bit RGB
+	color[R,G,B] = {[0,255], [0,255], [0,255]}
+	
+	Export to dxf, svg, stl or obj with color color = {r,g,b}
 --]]----------------------------------------
-cad_meta.__index.export = function(obj, file, color, verbose)
+local function export_scad(obj, file)
+	-- create native SCAD file
+	local fscad = io.open(scadfile, "w")
+	if not fscad then
+		error("Failed to write to scad file: "..fscad)
+	end
+	fscad:write(cad.openscad.include.."\n")
+	fscad:write("$fn = "..obj.segments..";\n\n")
+	fscad:write(obj.scad_content)
+	fscad:close()
+	-- create native OpenSCAD output, dxf, svg, stl
+	os.execute(executable.." -o "..file.." "..scadfile)	
+end
+local t_ext = {
+	-- 2D
+	[".dxf"] = function(obj, file)
+		export_scad(obj, file)
+	end,
+	[".svg"] = function(obj, file, color)
+		export_scad(obj, file)
+		if color then
+			local w = color[1] or "100%%"
+			local h = color[2] or "100%%"
+			local fill = color[3] or {0,0,255}
+			local stroke = color[4] or {0,0,0}
+			local stroke_width = color[5] or 0.0
+			local svg = io.open(file, "r")
+			local content = svg:read("*a")
+			svg:close()
+			--content = string.gsub(content, "<title>OpenSCAD Model</title>\n", "")
+			content = string.gsub(content, "%sheight=\"%d+\"", " height=\""..h.."\"")
+			content = string.gsub(content, "%swidth=\"%d+\"", " width=\""..w.."\"")
+			content = string.gsub(content, "fill=\"lightgray\"", "fill=\"#"..string.format("%02X%02X%02X", fill[1],fill[2],fill[3]).."\"")
+			content = string.gsub(content, "stroke=\"black\"", "stroke=\"#"..string.format("%02X%02X%02X", stroke[1],stroke[2],stroke[3]).."\"")
+			content = string.gsub(content, "stroke%-width=\"0%.5\"", "stroke-width=\""..stroke_width.."\"")
+			local svg = io.open(file, "w")
+			svg:write(content)
+			svg:close()
+		end
+	end,
+	-- 3D
+	[".stl"] = function(obj, file, color)
+		export_scad(obj, file)
+	end,
+	[".obj"] = function(obj, file, color)
+		-- export as stl
+		export_scad(obj, file..".stl")
+		local color = color or "white"
+		cad.io.stltoobj(file, {file..".stl"}, {color})
+		os.remove(file..".stl")
+	end,
+	[".wrl"] = function(obj, file, color)
+		-- export as stl
+		export_scad(obj, file..".stl")
+		local color = color or "white"
+		cad.io.stltowrl(file, {file..".stl"}, {color})
+		os.remove(file..".stl")
+	end,
+}
+cad_meta.__index.export = function(obj, file, param, verbose)
 	if verbose then
 		print("---------------------------------")
 		print("cad.export: -> "..file)
@@ -500,25 +566,15 @@ cad_meta.__index.export = function(obj, file, color, verbose)
 		print("scad_file: "..scadfile)
 		print("---------------------------------")
 	end
-	local obj_file = ""
-	if string.lower(string.sub(file, -4, -1)) == ".obj" then
-		obj_file = file
-		file = file..".stl"
-		color = color or {255,255,255}
+	
+	-- check extension
+	local ext = string.lower(string.sub(file, -4, -1))
+	
+	local f = t_ext[ext]
+	if not f then
+		error("<cad>:export, unknown extension "..ext)
 	end
-	local fscad = io.open(scadfile, "w")
-	if not fscad then
-		error("Failed to write to scad file: "..fscad)
-	end
-	fscad:write(cad.openscad.include.."\n")
-	fscad:write("$fn = "..obj.segments..";\n\n")
-	fscad:write(obj.scad_content)
-	fscad:close()
-	os.execute(executable.." -o "..file.." "..scadfile)
-	if obj_file ~= "" then
-		cad.io.stl_to_obj(obj_file, {file}, {color})
-		--os.remove(file)
-	end
+	f(obj, file, param)
 	return obj
 end
 
@@ -693,7 +749,7 @@ end
 	
 	x and y are the rotation point
 --]]------------------------------------------
-function cad_meta.__index.rotate_2D(obj_1, x,y, angle)
+function cad_meta.__index.rotate2d(obj_1, x,y, angle)
 	local obj = cad_obj()
 	update_content(obj, "translate(["..(x)..","..(y)..",0])\nrotate([0,0,"..angle.."])\ntranslate(["..(-x)..","..(-y)..",0])\n{\n")
 	intend_content(obj, 1)
@@ -705,11 +761,11 @@ function cad_meta.__index.rotate_2D(obj_1, x,y, angle)
 end
 
 --[[------------------------------------------
-	function <cad>:rotate_extrude()
+	function <cad>:rotateextrude()
 	
 	the object has to moved away from the center for rotate_extrude to succeed
 --]]------------------------------------------
-function cad_meta.__index.rotate_extrude(obj_1)
+function cad_meta.__index.rotateextrude(obj_1)
 	local obj = cad_obj()
 	update_content(obj, "rotate_extrude()\n{\n")
 	intend_content(obj, 1)
@@ -721,11 +777,11 @@ function cad_meta.__index.rotate_extrude(obj_1)
 end
 
 --[[------------------------------------------
-	function <cad>:linear_extrude(depth [, twist [, slices [, scale] ] ])
+	function <cad>:linearextrude(depth [, twist [, slices [, scale] ] ])
 	
 	note linear extrude moves the object back to the ground
 --]]------------------------------------------
-function cad_meta.__index.linear_extrude(obj_1, depth, twist, slices, scale)
+function cad_meta.__index.linearextrude(obj_1, depth, twist, slices, scale)
 	local twist = twist or 0 -- in degrees
 	local slices = slices or 1 -- in how many slices it should be put
 	local scale = scale or 1.0 -- if the object should be scaled towards extrusion
@@ -758,14 +814,14 @@ function cad_meta.__index.hull(obj_1)
 end
 
 --[[------------------------------------------
-	function <cad>:offset_r(r, chamfer)
+	function <cad>:offset(d, chamfer)
 	
-	Offset the object with radius r
+	Offset the object with distance d
 --]]------------------------------------------
-function cad_meta.__index.offset_r(obj_1, r, chamfer)
+function cad_meta.__index.offset(obj_1, d, chamfer)
 	local obj = cad_obj()
 	local chamfer = (chamfer and true) or false
-	update_content(obj, "offset(r="..r..",chamfer="..chamfer..")\n{\n")
+	update_content(obj, "offset(d="..r..",chamfer="..chamfer..")\n{\n")
 	intend_content(obj, 1)
 	update_content(obj, obj_1.scad_content)
 	intend_content(obj, -1)
@@ -775,14 +831,14 @@ function cad_meta.__index.offset_r(obj_1, r, chamfer)
 end
 
 --[[------------------------------------------
-	function <cad>:offset_d(d, chamfer)
+	function <cad>:offsetradius(r, chamfer)
 	
-	Offset the object with distance d
+	Offset the object with radius r
 --]]------------------------------------------
-function cad_meta.__index.offset_d(obj_1, d, chamfer)
+function cad_meta.__index.offsetradius(obj_1, r, chamfer)
 	local obj = cad_obj()
 	local chamfer = (chamfer and true) or false
-	update_content(obj, "offset(d="..r..",chamfer="..chamfer..")\n{\n")
+	update_content(obj, "offset(r="..r..",chamfer="..chamfer..")\n{\n")
 	intend_content(obj, 1)
 	update_content(obj, obj_1.scad_content)
 	intend_content(obj, -1)
@@ -875,7 +931,7 @@ end
 -- filename: full filepath to obj file
 -- t_faces a t_faces structure
 -- color is optional and has to be a table holding three r,g,b, numbers e.g. {[0,255],[0,255],[0,255]} or a string e.g. "white"
-cad.io.stl_to_obj = function(obj_filename, t_stl_filenames, t_colors)
+cad.io.stltoobj = function(obj_filename, t_stl_filenames, t_colors)
 
 	-- strip only filename
 	local filename = string.match(obj_filename,"([^\\/]+)%.%S%S%S$")
@@ -919,8 +975,8 @@ cad.io.stl_to_obj = function(obj_filename, t_stl_filenames, t_colors)
 	if err then error(err) end
 
 	file:write("#########################################\n")
-	file:write("# Wavefront .obj file\n")
-	file:write("# Created by: lib_cad.lua\n")
+	file:write("# Wavefront file\n")
+	file:write("# Created via: Lua_CAD (https://github.com/mvlutz/Lua_CAD)\n")
 	file:write("# Date: "..os.date().."\n")
 	file:write("#########################################\n\n")
 
@@ -967,6 +1023,70 @@ cad.io.stl_to_obj = function(obj_filename, t_stl_filenames, t_colors)
 			file:write("f "..(i2+1).." "..(i2+2).." "..(i2+3).."\n")
 			count = count + 1
 		end
+	end
+	file:close()
+end
+
+--/////////////////////////////////////////////////////////////////
+-- export stl to wrl 2.0
+-- filename: full filepath to obj file
+-- color is optional and has to be a table holding three r,g,b, numbers e.g. {[0,255],[0,255],[0,255]} or a string e.g. "white"
+cad.io.stltowrl = function(wrl_filename, t_stl_filenames, t_colors)
+
+	-- strip only filename
+	local filename = string.match(wrl_filename,"([^\\/]+)%.%S%S%S$")
+
+	-- write wrl
+	local file,err = io.open(wrl_filename, "w")
+	if err then error(err) end
+
+	-- set utf8 syntax
+	file:write("#VRML V2.0 utf8\n")
+	file:write("\n")
+	file:write("# Created via: Lua_CAD (https://github.com/mvlutz/Lua_CAD)\n")
+	file:write("# Date: "..os.date().."\n")
+
+	-- for each stl file write a shape
+	-- get all vertices
+	for i,v in ipairs(t_stl_filenames) do
+		local t_faces = cad_import_stl(v)
+		file:write("\nShape {\n")
+		local col = t_colors[i]
+		if col then
+			if color_rgb[col] then
+				col = color_rgb[v]
+			else
+				col = {col[1]/255,col[2]/255,col[3]/255}
+			end
+			file:write("\tappearance Appearance {\n")
+			file:write("\t\tmaterial Material {\n")
+			file:write("\t\t\tdiffuseColor "..string.format("%.06f %.06f %.06f",col[1], col[2], col[3]).."\n")
+			file:write("\t\t}\n")
+			file:write("\t}\n")
+		end
+		
+		-- List of Vertices
+		file:write("\tgeometry IndexedFaceSet {\n\n")
+		file:write("#\t\tList of Coordinates:\n")
+		file:write("\t\tcoord Coordinate {\n")
+		file:write("\t\t\tpoint [\n")
+		for i,v in ipairs(t_faces) do
+			for i2=2,4 do
+				file:write("\t\t\t\t"..string.format("%f",v[i2][1]).." "..string.format("%f",v[i2][2]).." "..string.format("%f",v[i2][3]).."\n")
+			end
+		end
+		file:write("\t\t\t]\n")
+		file:write("\t\t}\n\n")
+		file:write("#\t\tList of Faces:\n")
+		file:write("\t\tcoordIndex [\n")
+		local count = 0
+		for _,t_v in ipairs(t_faces) do
+			file:write("\t\t\t"..(count).." "..(count+1).." "..(count+2).." -1\n")
+			count = count + 3
+		end
+		file:write("\t\t]\n")
+		file:write("\t}\n")
+		file:write("}\n")
 	end
 	file:close()
 end
