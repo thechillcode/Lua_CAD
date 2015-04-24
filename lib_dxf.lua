@@ -9,6 +9,7 @@
 --]]-----------------------------------
 
 require "lib_vector"
+require "lib_geometry"
 
 -- simple function to modify a dxf file
 
@@ -21,30 +22,6 @@ local dxf_index = {}
 	Imports a dxf object, but only reads LINE & CIRCLE, does not copy layers
 	returns a dxf object
 --]]------------------------------------------
-local os_header = [[  0
-SECTION
-  2
-BLOCKS
-  0
-ENDSEC
-  0
-SECTION
-  2
-ENTITIES
-]]
-local os_footer = [[  0
-ENDSEC
-  0
-SECTION
-  2
-OBJECTS
-  0
-DICTIONARY
-  0
-ENDSEC
-  0
-EOF
-]]
 local import_values = {
 	["LINE"] = {
 		[10] = 0,
@@ -85,10 +62,11 @@ local function dxf_read_cmd_value(file)
 	if not line then return end
 	return tonumber(cmd),line
 end
-function dxf(dxf_file)
+local function new_dxf(_, dxf_file)
 	local dxf_obj = {}
+	dxf_obj.layers = {}
+	dxf_obj.entities = {}
 	setmetatable(dxf_obj, {__index = dxf_index})
-	
 	if dxf_file then
 		local f,err = io.open(dxf_file,"r")
 		if err then print(err) return end
@@ -108,6 +86,10 @@ function dxf(dxf_file)
 	end
 	return dxf_obj
 end
+dxf = {}
+setmetatable(dxf, {__call = new_dxf})
+-- Variables
+dxf.default_segments = 120
 
 --[[------------------------------------------
 	function <dxf>:addlayer(name)
@@ -117,8 +99,7 @@ end
 	returns dxf object or raises an error
 --]]------------------------------------------
 dxf_index.addlayer = function(obj, name, colorindex, style)
-	if (name == 0) then error("Layer name cannot be: "..name) end
-	obj.layers = obj.layers or {}
+	if ((name == 0) or (name == "0")) then error("Layer name cannot be: "..name) end
 	table.insert(obj.layers, {NAME=name, COLORINDEX = (colorindex or "0"), STYLE=(style or "CONTINUOUS")})
 	return obj
 end
@@ -130,8 +111,7 @@ end
 	returns dxf object or raises an error
 --]]------------------------------------------
 dxf_index.text = function(obj, text, x, y, height, angle, font, thickness, layer)
-	obj.texts = obj.texts or {}
-	table.insert(obj.texts, {TEXT=text, THICKNESS=(thickness or "0"), X=x, Y=y, HEIGHT=height, ANGLE=(angle or "0"), FONT=(font or "STANDARD"), LAYER=(layer or "0")})
+	table.insert(obj.entities,{"TEXT", {TEXT=text, THICKNESS=(thickness or "0"), X=x, Y=y, HEIGHT=height, ANGLE=(angle or "0"), FONT=(font or "STANDARD"), LAYER=(layer or "0")}})
 	return obj
 end
 
@@ -142,8 +122,7 @@ end
 	returns dxf object or raises an error
 --]]------------------------------------------
 dxf_index.mtext = function(obj, text, x, y, height, angle, font, width, layer)
-	obj.mtexts = obj.mtexts or {}
-	table.insert(obj.mtexts, {TEXT=text, WIDTH=(width or "100"), X=x, Y=y, HEIGHT=height, ANGLE=(angle or "0"), FONT=(font or "STANDARD"), LAYER=(layer or "0")})
+	table.insert(obj.entities,{"MTEXT", {TEXT=text, WIDTH=(width or "100"), X=x, Y=y, HEIGHT=height, ANGLE=(angle or "0"), FONT=(font or "STANDARD"), LAYER=(layer or "0")}})
 	return obj
 end
 
@@ -154,8 +133,28 @@ end
 	returns dxf object or raises an error
 --]]------------------------------------------
 dxf_index.line = function(obj, x1, y1, x2, y2, layer)
-	obj.lines = obj.lines or {}
-	table.insert(obj.lines, {X1=x1, Y1=y1, X2=x2, Y2=y2, LAYER=(layer or "0")})
+	table.insert(obj.entities,{"LINE", {X1=x1, Y1=y1, X2=x2, Y2=y2, LAYER=(layer or "0")}})
+	return obj
+end
+
+--[[------------------------------------------
+	function <dxf>:circle(x, y, radius, layer)
+	
+	returns dxf object or raises an error
+--]]------------------------------------------
+dxf_index.circle = function(obj, x, y, radius, layer)
+	table.insert(obj.entities,{"CIRCLE", {X=x, Y=y, RADIUS=radius, LAYER=(layer or "0")}})
+	return obj
+end
+
+--[[------------------------------------------
+	function <dxf>:arc(x, y, radius, start_angle, end_angle [, layer])
+	
+	start_angle: 0° = right, 90° = top, 180° = left
+	returns dxf object or raises an error
+--]]------------------------------------------
+dxf_index.arc = function(obj, x, y, radius, start_angle, end_angle, layer)
+	table.insert(obj.entities,{"ARC", {X=x, Y=y, RADIUS=radius, STARTANGLE=start_angle, ENDANGLE=end_angle, LAYER=(layer or "0")}})
 	return obj
 end
 
@@ -170,17 +169,6 @@ dxf_index.rect = function(obj, x1, y1, w, h, layer)
 	obj:line(x1+w,y1, x1+w,y1+h, layer)
 	obj:line(x1,y1+h, x1+w,y1+h, layer)
 	obj:line(x1,y1, x1,y1+h, layer)
-	return obj
-end
-
---[[------------------------------------------
-	function <dxf>:circle(x, y, radius, layer)
-	
-	returns dxf object or raises an error
---]]------------------------------------------
-dxf_index.circle = function(obj, x, y, radius, layer)
-	obj.circles = obj.circles or {}
-	table.insert(obj.circles, {X=x, Y=y, RADIUS=radius, LAYER=(layer or "0")})
 	return obj
 end
 
@@ -227,6 +215,30 @@ dxf_index.curved_arrow_cc = function(obj, x, y, radius, s, layer)
 	v2 = tip+v2
 	obj:line(tip[1], tip[2], v1[1], v1[2], layer)
 	obj:line(tip[1], tip[2], v2[1], v2[2], layer)
+	return obj
+end
+
+--[[------------------------------------------
+	function <dxf>:polygon(x, y, t_points [, layer])
+	
+	points have to be in counter clockwise direction, a line is drawn between each point
+	draw a polygon from given points {{x,y [,"<funcname>", {args}]},{x,y},...,{x,y}}
+	note angles are the outer angles measured
+	special functions:
+		radius: radius one edge arg {radius [, segments]}, replaces current point with a round edge
+		belly: draw a belly between current and next point, the belly function follows a circle {distance [, segments]}
+		arc: draws an arc where current point is the center and previous point and next point are the limits {radius [, segments]}
+		
+	Note: if using special function t_paths will not work
+--]]------------------------------------------
+dxf_index.polygon = function(obj, x,y, t_points, layer)
+	local t_p = geometry.polygon(t_points)
+	local prev = t_p[1]
+	for i=2,#t_p do
+		obj:line(x+prev[1], y+prev[2], x+t_p[i][1], y+t_p[i][2], layer)
+		prev = t_p[i]
+	end
+	return obj
 end
 
 --[[------------------------------------------
@@ -234,7 +246,31 @@ end
 	
 	returns dxf object or raises an error
 --]]------------------------------------------
-local layer_start = [[0
+local dxf_header = [[  0
+SECTION
+  2
+BLOCKS
+  0
+ENDSEC
+  0
+SECTION
+  2
+ENTITIES
+]]
+local dxf_footer = [[  0
+ENDSEC
+  0
+SECTION
+  2
+OBJECTS
+  0
+DICTIONARY
+  0
+ENDSEC
+  0
+EOF
+]]
+local dxf_layer_start = [[0
 SECTION
 2
 TABLES
@@ -245,7 +281,12 @@ LAYER
 70
 6
 ]]
-local layer_add = [[0
+local dxf_layer_end = [[0
+ENDTAB
+0
+ENDSEC
+]]
+local dxf_layer = [[0
 LAYER
 2
 $NAME
@@ -256,12 +297,9 @@ $COLORINDEX
 6
 $STYLE
 ]]
-local layer_end = [[0
-ENDTAB
-0
-ENDSEC
-]]
-local text_add = [[  0
+
+local dxf_entities = {
+	["TEXT"] = [[  0
 TEXT
   8
 $LAYER
@@ -285,8 +323,9 @@ $TEXT
 $FONT
  72
 1
-]]
-local mtext_add = [[  0
+]],
+
+	["MTEXT"] = [[  0
 MTEXT
   8
 $LAYER
@@ -312,8 +351,9 @@ $FONT
 5
  72
 4
-]]
-local line_add = [[  0
+]],
+
+	["LINE"] = [[  0
 LINE
   8
 $LAYER
@@ -325,8 +365,9 @@ $X2
 $Y1
  21
 $Y2
-]]
-local circle_add = [[  0
+]],
+
+	["CIRCLE"] = [[  0
 CIRCLE
   8
 $LAYER
@@ -338,46 +379,44 @@ $Y
 0
  40
 $RADIUS
-]]
+]],
+
+	-- http://www.autodesk.com/techpubs/autocad/acad2000/dxf/arc_dxf_06.htm
+	["ARC"] = [[  0
+ARC
+  8
+$LAYER
+  10
+$X
+  20
+$Y
+  40
+$RADIUS
+  50
+$STARTANGLE
+  51
+$ENDANGLE
+]],
+}
 dxf_index.save = function(obj, dxf_file)
 	local f,err = io.open(dxf_file,"w")
 	if err then print(err) return end
-	if obj.layers then
-		f:write(layer_start)
+	if #obj.layers ~= 0 then
+		f:write(dxf_layer_start)
 		for i,v in ipairs(obj.layers) do
-			local slayer = string.gsub(layer_add, "%$(%w+)", v)
+			local slayer = string.gsub(dxf_layer, "%$(%w+)", v)
 			f:write(slayer)
 		end
-		f:write(layer_end)
+		f:write(dxf_layer)
 	end
-	-- write vector
-	f:write(os_header)
-	--f:write(obj.svector)
-	if (obj.lines) then
-		for i,v in ipairs(obj.lines) do
-			local sline = string.gsub(line_add, "%$(%w+)", v)
-			f:write(sline)
-		end	
+	f:write(dxf_header)
+	for i,v in ipairs(obj.entities) do
+		local ent = v[1]
+		local param = v[2]
+		local command = string.gsub(dxf_entities[ent], "%$(%w+)", param)
+		f:write(command)
 	end
-	if (obj.circles) then
-		for i,v in ipairs(obj.circles) do
-			local stext = string.gsub(circle_add, "%$(%w+)", v)
-			f:write(stext)
-		end	
-	end
-	if (obj.texts) then
-		for i,v in ipairs(obj.texts) do
-			local stext = string.gsub(text_add, "%$(%w+)", v)
-			f:write(stext)
-		end	
-	end
-	if (obj.mtexts) then
-		for i,v in ipairs(obj.mtexts) do
-			local stext = string.gsub(mtext_add, "%$(%w+)", v)
-			f:write(stext)
-		end	
-	end
-	f:write(os_footer)
+	f:write(dxf_footer)
 	f:close()
 	return obj
 end

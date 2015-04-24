@@ -11,6 +11,9 @@ require "lib_vector"
 --]]--------------------------------------------------------------------------------
 geometry = {}
 
+-- Variables
+geometry.default_segments = 120
+
 --[[------------------------------------------
 	function geometry.gettrianglefromsides(side_a, side_b, side_c)
 	
@@ -60,20 +63,18 @@ end
 
 -- x1,y1 and x2,y2 are the vector, width is the hight from the middle of the vector to radius
 geometry.getradiusfromcirclesegment = function(x1, y1, x2, y2, width)
-	local s_vec = {x1-x2, y1-y2}
-	local s_vec_len = math.sqrt((s_vec[1]*s_vec[1]) + (s_vec[2]*s_vec[2]))
+	local s_vec = vector(x1-x2, y1-y2)
+	local s_vec_len = #s_vec
 	-- calc radius
 	local radius = ((4*(width*width)) + (s_vec_len*s_vec_len)) / (8*width)
 	
-	-- s_vec with len 1
-	local s_vec_one = { (s_vec[2])/s_vec_len, s_vec[1]/s_vec_len }
-	-- s_vec with normal
-	local s_vec_norm = {s_vec_one[1], -s_vec_one[2]}
-
+	-- s_vec_normal to the right as unit
+	local s_vec_norm = s_vec:normal(-1):unit()
+	
 	-- calc radius point
-	local rp = {x2+(s_vec[1]/2), y2+(s_vec[2]/2)}
+	local rp = vector(x2,y2) + (s_vec*0.5)
 	local vlen = radius - width
-	local rp = {rp[1]+(s_vec_norm[1]*vlen), rp[2]+(s_vec_norm[2]*vlen)}
+	local rp = rp + (s_vec_norm * vlen)
 	
 	return rp, radius
 end
@@ -86,31 +87,122 @@ end
 	returns a table with points
 --]]------------------------------------------
 geometry.getcirclesegment = function(x1, y1, x2, y2, dist, circle_seg)
-	local circle_seg = circle_seg or 120
+	if dist < 0 then
+		x1,y1,x2,y2 = x2,y2,x1,y1
+	end
+	local circle_seg = circle_seg or geometry.default_segments
 	local angle_seg = 360/circle_seg
-	local rp, radius = geometry.getradiusfromcircle_segment(x1, y1, x2, y2, dist)
+	local rp, radius = geometry.getradiusfromcirclesegment(x1, y1, x2, y2, math.abs(dist))
 		
-	local v1 = vector(x1-rp[1], y1-rp[2])
-	local v2 = vector(x2-rp[1], y2-rp[2])
+	local v1 = vector(x1,y1) - rp
+	local v2 = vector(x2,y2) - rp
 
-	-- get angle between
-	--print("Angle: "..math.deg(v1:angle(v2)))
-	local angle = math.deg(v1:angle(v2))
-	
+	-- get absolute angle between
+	local angle = math.abs(v1:angle(v2))
 	
 	local num = math.floor(angle/angle_seg)
-	--print("Segments: "..num)
 	local rest = (angle - (num*angle_seg))/2
 	
 	local t_points = {}
 	
-	local vrot = v1:rot(math.rad(rest))
-	table.insert(t_points, {vrot[1]+rp[1], vrot[2]+rp[2]})
+	local vrot = v1:rot(rest)
+	table.insert(t_points, vrot + rp)
 	for i=1,num do
-		vrot = vrot:rot(math.rad(angle_seg))
-		table.insert(t_points, {vrot[1]+rp[1], vrot[2]+rp[2]})
+		vrot = vrot:rot(angle_seg)
+		table.insert(t_points, vrot + rp)
 	end
 	
+	if dist < 0 then
+		local t_rev = {}
+		for i,v in ipairs(t_points) do
+			table.insert(t_rev, 1, v)
+		end
+		t_points = t_rev
+	end	
+	return t_points
+end
+
+--[[------------------------------------------
+	function geometry.arc(x, y, radius, start_angle, end_angle [, circle_seg])
+	
+	start_angle: 0° = right, 90° = top, 180° = left
+	returns a table with points
+--]]------------------------------------------
+geometry.arc = function(x, y, radius, start_angle, end_angle, circle_seg)
+	local circle_seg = circle_seg or geometry.default_segments
+	local angle_seg = 360/circle_seg
+	local start_angle = math.fmod(start_angle, 360)
+	local end_angle = math.fmod(end_angle, 360)
+	
+	-- calc full angle
+	local full_angle = math.abs(end_angle - start_angle)
+	-- calc segments
+	local num = math.floor(full_angle/angle_seg)
+	-- calc rest
+	local rest = (full_angle - (num*angle_seg))/2
+	
+	-- get vector
+	local v1 = vector(radius, 0):rot(start_angle)
+	local center = vector(x,y)
+	
+	local t_points = {}
+	table.insert(t_points, v1 + center)
+	v1 = v1:rot(rest)
+	table.insert(t_points, v1 + center)
+	for i=1,num do
+		v1 = v1:rot(angle_seg)
+		table.insert(t_points, v1 + center)
+	end
+	v1 = v1:rot(rest)
+	table.insert(t_points, v1 + center)
+
+	return t_points
+end
+
+--[[------------------------------------------
+	function geometry.arcvec(x1,y1, x2,y2, x3,y3, radius [, circle_seg])
+	
+	get points of radius between vec1(2->1) and vec2(2->3), center is x2,y2
+	returns a table with points
+--]]------------------------------------------
+geometry.arcvec = function(x1,y1, x2,y2, x3,y3, radius, circle_seg)
+	local circle_seg = circle_seg or geometry.default_segments
+	local angle_seg = 360/circle_seg
+	
+	local v1 = vector(x1-x2, y1-y2)
+	local v2 = vector(x3-x2, y3-y2)
+	
+	-- calc full angle
+	local full_angle = v1:angle(v2)
+	if full_angle < 0 then
+		full_angle = 360 + full_angle
+	end
+	if radius < 0 then
+		full_angle = full_angle - 360
+		angle_seg = -angle_seg
+	end
+	
+	-- calc segments
+	local num = math.floor(full_angle/angle_seg)
+	-- calc rest
+	local rest = (full_angle - (num*angle_seg))/2
+	
+	-- get vector
+	local v_rot = v1:unit() * math.abs(radius)
+	local v2 = vector(x2, y2)
+	
+	local t_points = {}
+	table.insert(t_points, v_rot + v2)
+	
+	v_rot = v_rot:rot(rest)
+	table.insert(t_points, v_rot + v2)
+	for i=1,num do
+		v_rot = v_rot:rot(angle_seg)
+		table.insert(t_points, v_rot + v2)
+	end
+	v_rot = v_rot:rot(rest)
+	table.insert(t_points, v_rot + v2)
+
 	return t_points
 end
 
@@ -119,6 +211,10 @@ end
 	
 	get rounding center of three points (two vectors with one center points)
 	points have to be in counter clock direction
+	A = center
+	B = first circler connection
+	D = last circle connection
+	gamma = the angle that the circle is drawn in radians
 --]]------------------------------------------
 geometry.getroundcenter = function(x1,y1, x2,y2, x3,y3, radius, outside)
 	local outside = outside or false
@@ -137,11 +233,11 @@ geometry.getroundcenter = function(x1,y1, x2,y2, x3,y3, radius, outside)
 	local a = math.tan(alpha)*c
 	
 	local vec_a = vec_1:unit()*a
-	local op = -1
+	local left_right = -1
 	if outside == true then
-		op = 1
+		left_right = 1
 	end
-	local vec_c = vec_1:unit():normal(op)*c
+	local vec_c = vec_1:unit():normal(left_right)*c
 	--print(vec_1, vec_2, vec_a, vec_c)
 	
 	-- get radius point
@@ -157,7 +253,7 @@ end
 	returns points to use instead of the middle point e.g. {x,y},{x,y}
 --]]------------------------------------------
 geometry.roundcorner = function(x1,y1, x2,y2, x3,y3, radius, segments)
-	local segments = segments or 120
+	local segments = segments or geometry.default_segments
 	local seg_rad = (2*math.pi)/segments
 	
 	local outside = false
@@ -178,14 +274,14 @@ geometry.roundcorner = function(x1,y1, x2,y2, x3,y3, radius, segments)
 	
 	local rot = 0
 	-- calc new points
-	local t_points = {B}
+	local t_points = {}
 	if rest > 0 then
 		if radius < 0 then
 			rot = rot - rest
 		else
 			rot = rot + rest
 		end
-		local p = A + vec_ab:rot(rot)
+		local p = A + vec_ab:rot(math.deg(rot))
 		table.insert(t_points, p)
 	end
 	for i=1,segs do
@@ -194,17 +290,17 @@ geometry.roundcorner = function(x1,y1, x2,y2, x3,y3, radius, segments)
 		else
 			rot = rot + seg_rad
 		end
-		local p = A + vec_ab:rot(rot)
+		local p = A + vec_ab:rot(math.deg(rot))
 		table.insert(t_points, p)
 	end
-	table.insert(t_points, D)
+	--table.insert(t_points, D)
 	return t_points
 end
 
 -- Geometric Objects
 
 -- returns the coordinates of a tetrahedron with equal sides
-geometry.gettetrahedron = function(side)
+geometry.tetrahedron = function(side)
 	local A = {0,0,0}
 	local B = {side,0,0}
 	-- calc C
@@ -216,4 +312,59 @@ geometry.gettetrahedron = function(side)
 	local D = {side/2, h/3, h_D}
 	
 	return A,B,C,D
+end
+
+--[[------------------------------------------
+	function geometry.polygon(x, y, t_points)
+	
+	points have to be in counter clockwise direction
+	draw a polygon from given points {{x,y [,"<funcname>",{args}]},{x,y},...,{x,y}}
+	note angles are the outer angles measured
+	special functions:
+		radius: radius one edge arg {radius [, segments]}, replaces current point with radius
+		belly: draw a belly between current and next point, the belly function follows a circle {distance [, segments]}
+		arc: draws an arc where current point is the center and previous point and next point are the limits {radius [, segments]}
+		
+	Note: if using special function t_paths will not work
+--]]------------------------------------------
+local t_fname = {
+	["radius"] = function(pre, cur, nex, t_param)
+		return geometry.roundcorner(pre[1],pre[2], cur[1],cur[2], nex[1],nex[2], t_param[1], t_param[2])
+	end,
+	["belly"] = function(pre, cur, nex, t_param)
+		local tp = geometry.getcirclesegment(cur[1],cur[2], nex[1],nex[2], t_param[1], t_param[2])
+		table.insert(tp, 1, cur)
+		return tp	
+	end,
+	["arc"] = function(pre, cur, nex, t_param)
+		return geometry.arcvec(pre[1],pre[2], cur[1],cur[2], nex[1],nex[2], t_param[1], t_param[2])
+	end,
+}
+function geometry.polygon(t_points)
+	local t_p = {}
+	for i,v in ipairs(t_points) do
+		-- previus
+		local prev = 0
+		local nex = 0
+		if i==1 then
+			prev = t_points[#t_points]
+		else
+			prev = t_points[i-1]
+		end
+		if i==#t_points then
+			nex = t_points[1]
+		else
+			nex = t_points[i+1]
+		end
+		local f_name = t_points[i][3]
+		if f_name and t_fname[f_name] then
+			local p = t_fname[f_name](prev, v, nex, t_points[i][4])
+			for i,v in ipairs(p) do
+				table.insert(t_p, v)
+			end
+		else
+			table.insert(t_p, {v[1],v[2]})
+		end
+	end
+	return t_p
 end

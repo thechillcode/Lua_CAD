@@ -138,6 +138,7 @@ end
 	special functions:
 		radius: radius one edge arg {radius [, segments]}, replaces current point with radius
 		belly: draw a belly between current and next point, the belly function follows a circle {distance [, segments]}
+		arc: draws an arc where current point is the center and previous point and next point are the limits {radius [, segments]}
 		
 	Note: if using special function t_paths will not work
 --]]------------------------------------------
@@ -164,42 +165,8 @@ local polygon_raw = function(x,y, t_points, t_paths)
 	update_content_t(obj, scad_polygon, t)
 	return obj
 end
-local t_fname = {
-	["radius"] = function(pre, cur, nex, t_param)
-		return geometry.roundcorner(pre[1],pre[2], cur[1],cur[2], nex[1],nex[2], t_param[1], t_param[2])
-	end,
-	["belly"] = function(pre, cur, nex, t_param)
-		local tp = geometry.getcirclesegment(cur[1],cur[2], nex[1],nex[2], t_param[1], t_param[2])
-		table.insert(tp, 1, cur)
-		return tp	
-	end,
-}
 function cad.polygon(x,y, t_points, t_paths)
-	local t_p = {}
-	for i,v in ipairs(t_points) do
-		-- previus
-		local prev = 0
-		local nex = 0
-		if i==1 then
-			prev = t_points[#t_points]
-		else
-			prev = t_points[i-1]
-		end
-		if i==#t_points then
-			nex = t_points[1]
-		else
-			nex = t_points[i+1]
-		end
-		local f_name = t_points[i][3]
-		if f_name and t_fname[f_name] then
-			local p = t_fname[f_name](prev, v, nex, t_points[i][4])
-			for i,v in ipairs(p) do
-				table.insert(t_p, v)
-			end
-		else
-			table.insert(t_p, {v[1],v[2]})
-		end
-	end
+	local t_p = geometry.polygon(t_points)
 	return polygon_raw(x,y, t_p, t_paths)
 end
 
@@ -398,7 +365,7 @@ end
 
 --[[------------------------------------------------------------------------------------
 
-	function cad.text_3D(x ,y, z, text [, height [, depth [, font [, style [, h_align [, v_align] ] ] ] ] ])
+	function cad.text3d(x ,y, z, text [, height [, depth [, font [, style [, h_align [, v_align] ] ] ] ] ])
 	
 	height = height in mm or 10 by default
 	depth = 5 by default
@@ -857,29 +824,6 @@ cad_meta.__sub = function (a,b)
 end
 
 
---[[--------------------------------------------------------------------------------
-	FILE IO SUPPORT
---]]--------------------------------------------------------------------------------
-
-cad.io = {}
-
---[[
-	Convert ASCII STL file to OBJ (wavefront file) with optional coloring
-	V 1.0
-	Date: 2014-09-25
-	Author: Michael Lutz
-	Licensed under the same terms as Lua itself
-	
-	Info:
-	Imports an ASCII stl file into a t_faces structure
-	t_faces is a table holding faces = {face 1,face 2,...,face n}
-	each face consists of a normal and three points arranged in counter clock looking at of from the surface
-		e.g. face = {normal,v1,v2,v3}
-		where normal and v... are a table holding three floating point numbers e.g. {num1,num2,num3}
-	Exports a t_faces structure into an OBJ file with optional coloring
-	
-	v2: multiple stl file support
---]]
 
 -- add aditonal presets of colors here
 local color_rgb = {
@@ -925,7 +869,41 @@ local function cad_import_stl(filename)
 	return t_faces
 end
 
+--[[--------------------------------------------------------------------------------
+	CAD Export Function
+--]]--------------------------------------------------------------------------------
 
+--[[----------------------------------------
+	function cad.export(filename, obj_1 [, obj_2, obj_n])
+	
+	exports all objects into one file
+--]]----------------------------------------
+function cad.export(x,y,z, length, height)
+	local t_points = {
+		{0,0,0},{length,0,0},{length,length,0},{0,length,0},
+		{length/2,length/2,height}
+	}
+	local t_faces = {
+		{0,1,4},{1,2,4},{2,3,4},{3,0,4},{3,2,1,0}
+	}
+	local obj = cad.polyhedron(x,y,z, t_points, t_faces)
+	return obj
+end
+
+
+--[[--------------------------------------------------------------------------------
+	FILE IO SUPPORT
+--]]--------------------------------------------------------------------------------
+
+cad.io = {}
+
+--[[
+	Convert ASCII STL file to OBJ (wavefront file) with optional coloring
+	Info:
+
+	Imports an ASCII stl file into a t_faces structure
+	Exports a t_faces structure into an OBJ file with optional coloring
+--]]
 --/////////////////////////////////////////////////////////////////
 -- export t_faces structure to OBJ (wavefront) file
 -- filename: full filepath to obj file
