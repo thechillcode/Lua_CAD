@@ -29,9 +29,6 @@ return openscad_settings
 --]=]
 
 require "lib_geometry" -- includes lib_vector
-local oscad_settings = require "lib_cad_settings"
-
-local default_segments = 12
 
 --[[--------------------------------------------------------------------------------
 	GLOBAL CAD TABLE
@@ -39,16 +36,14 @@ local default_segments = 12
 cad = {}
 
 -- OpenSCAD settings
-cad.openscad = {}
-cad.openscad.executable = oscad_settings.executable
-cad.openscad.scadfile = oscad_settings.scadfile
-cad.openscad.include = oscad_settings.include
+cad.settings = require "lib_cad_settings"
 
 --[[--------------------------------------------------------------------------------
 	LOCAL OBJ HELPER FUNCTIONS
 --]]--------------------------------------------------------------------------------
-local executable = cad.openscad.executable
-local scadfile = cad.openscad.scadfile
+local default_segments = cad.settings.default_segments
+local executable = cad.settings.executable
+local scadfile = cad.settings.scadfile
 
 local function intend_content(this, count)
 	this.intend_num = this.intend_num + count
@@ -63,6 +58,32 @@ end
 local function update_content_t(obj, scad_func, t)
 	local _scad_content = string.gsub(scad_func, "%$(%w+)", t)
 	update_content(obj, _scad_content)
+end
+
+-- add aditonal presets of colors here
+local color_rgb = {
+	["white"] = {1.0,1.0,1.0},
+	["black"] = {0,0,0},
+	["red"] = {1.0,0,0},
+	["green"] = {0,1.0,0},
+	["blue"] = {0,0,1.0},
+	["cyan"] = {0,1.0,1.0},
+	["magenta"] = {1.0,0,1.0},
+	["yellow"] = {1.0,1.0,0},
+}
+
+local function export_scad(obj, file)
+	-- create native SCAD file
+	local fscad = io.open(scadfile, "w")
+	if not fscad then
+		error("Failed to write to scad file: "..fscad)
+	end
+	fscad:write(cad.settings.include.."\n")
+	fscad:write("$fn = "..obj.segments..";\n\n")
+	fscad:write(obj.scad_content)
+	fscad:close()
+	-- create native OpenSCAD output, dxf, svg, stl
+	os.execute(executable.." -o "..file.." "..scadfile)
 end
 
 --[[--------------------------------------------------------------------------------
@@ -81,6 +102,15 @@ local cad_obj = function()
 	return obj
 end
 setmetatable(cad, {__call = cad_obj })
+
+--[[----------------------------------------
+	function cad.setdefaultcirclefragments(num)
+	
+	optional $fn and $fs can be set (http://en.wikibooks.org/wiki/OpenSCAD_User_Manual/Other_Language_Features#Special_variables)
+--]]----------------------------------------
+cad.setdefaultcirclefragments = function(fn)
+	default_segments = fn
+end
 
 --[[--------------------------------------------------------------------------------
 	CAD CREATING Functions
@@ -357,7 +387,7 @@ function cad.text(x,y,z, text, height, font, style, h_align, v_align)
 	local style = style and (":"..style) or ""
 	local h_align = h_align or "left"
 	local v_align = v_align or "baseline"
-	local t = {X=x, Y=y, Z=z, TEXT=text, H=height, FONT=font..style, HALIGN=h_align, VALIGN=v_align}
+	local t = {X=x, Y=y, Z=z, TEXT=tostring(text), H=height, FONT=font..style, HALIGN=h_align, VALIGN=v_align}
 	local obj = cad_obj()
 	update_content_t(obj, scad_text, t)
 	return obj
@@ -367,8 +397,8 @@ end
 
 	function cad.text3d(x ,y, z, text [, height [, depth [, font [, style [, h_align [, v_align] ] ] ] ] ])
 	
-	height = height in mm or 10 by default
-	depth = 5 by default
+	height = height in mm or 1 by default
+	depth = 1 by default
 	font = "Arial", "Courier New", "Liberation Sans", etc., default "Arial"
 	style = depending on the font, usually "Bold","Italic", etc. default normal
 	h_aling = horizontal alignment, Possible values are "left", "center" and "right". Default is "left".
@@ -377,7 +407,7 @@ end
 --]]------------------------------------------------------------------------------------
 function cad.text3d(x,y,z, text, height, depth, font, style, h_align, v_align)
 	local obj = cad.text(0,0,0, text, height, font, style, h_align, v_align)
-		:linearextrude(depth or 5)
+		:linearextrude(depth or 1)
 		:translate(x,y,z)
 	return obj
 end
@@ -421,6 +451,8 @@ cad_meta.__index.init = function(obj)
 	obj.scad_content = ""
 	obj.segments = default_segments
 	obj.intend_num = 0
+	-- diffuse color [0,1]
+	obj.color = {1,1,1}
 	return obj
 end
 cad_meta.__index.reset = cad_meta.__index.init
@@ -450,6 +482,29 @@ cad_meta.__index.setcirclefragments = function(obj, fn)
 end
 
 --[[----------------------------------------
+	function <cad>:setcolor(R, G, B)
+	function <cad>:setcolor(color_name)
+	function <cad>:setcolor({R, G, B})
+	
+	Set an object color, will work with obj and wrl format
+	R,G,B are in the range of [0,1]
+--]]----------------------------------------
+cad_meta.__index.setcolor = function(obj, R, G, B)
+	if type(R) == "table" then
+		obj.color = R
+	elseif type(R) == "string" then
+		if color_rgb[R] then
+			obj.color = color_rgb[R]
+		else
+			error("Unable to set color: "..R)
+		end
+	else
+		obj.color = {R, G, B}
+	end
+	return obj
+end
+
+--[[----------------------------------------
 	function <cad>:export(file [, color [, verbose] ])
 	function <cad>:export(<file>.svg [, {width,height,{color_fill},{color_stroke},stroke_width} [, verbose] ])
 	
@@ -458,30 +513,18 @@ end
 	Export 3D color: wrl, x3d, obj
 	
 	Color is 8bit RGB
-	color[R,G,B] = {[0,255], [0,255], [0,255]}
+	color[R,G,B] = {[0,1], [0,1], [0,1]}
 	
 	Export to dxf, svg, stl or obj with color color = {r,g,b}
 --]]----------------------------------------
-local function export_scad(obj, file)
-	-- create native SCAD file
-	local fscad = io.open(scadfile, "w")
-	if not fscad then
-		error("Failed to write to scad file: "..fscad)
-	end
-	fscad:write(cad.openscad.include.."\n")
-	fscad:write("$fn = "..obj.segments..";\n\n")
-	fscad:write(obj.scad_content)
-	fscad:close()
-	-- create native OpenSCAD output, dxf, svg, stl
-	os.execute(executable.." -o "..file.." "..scadfile)	
-end
 local t_ext = {
 	-- 2D
 	[".dxf"] = function(obj, file)
 		export_scad(obj, file)
 	end,
-	[".svg"] = function(obj, file, color)
+	[".svg"] = function(obj, file)
 		export_scad(obj, file)
+		local color = {math.floor(obj.color[1]*255),math.floor(obj.color[2]*255),math.floor(obj.color[3]*255)}
 		if color then
 			local w = color[1] or "100%%"
 			local h = color[2] or "100%%"
@@ -503,25 +546,25 @@ local t_ext = {
 		end
 	end,
 	-- 3D
-	[".stl"] = function(obj, file, color)
+	[".stl"] = function(obj, file)
 		export_scad(obj, file)
 	end,
-	[".obj"] = function(obj, file, color)
+	[".obj"] = function(obj, file)
 		-- export as stl
 		export_scad(obj, file..".stl")
 		local color = color or "white"
-		cad.io.stltoobj(file, {file..".stl"}, {color})
+		cad.stl.toobj(file, {file..".stl"}, {obj.color})
 		os.remove(file..".stl")
 	end,
-	[".wrl"] = function(obj, file, color)
+	[".wrl"] = function(obj, file)
 		-- export as stl
 		export_scad(obj, file..".stl")
 		local color = color or "white"
-		cad.io.stltowrl(file, {file..".stl"}, {color})
+		cad.stl.towrl(file, {file..".stl"}, {obj.color})
 		os.remove(file..".stl")
 	end,
 }
-cad_meta.__index.export = function(obj, file, param, verbose)
+cad_meta.__index.export = function(obj, file, verbose)
 	if verbose then
 		print("---------------------------------")
 		print("cad.export: -> "..file)
@@ -541,7 +584,7 @@ cad_meta.__index.export = function(obj, file, param, verbose)
 	if not f then
 		error("<cad>:export, unknown extension "..ext)
 	end
-	f(obj, file, param)
+	f(obj, file)
 	return obj
 end
 
@@ -649,6 +692,25 @@ end
 function cad_meta.__index.scale(obj_1, x,y,z)
 	local obj = cad_obj()
 	update_content(obj, "scale(["..x..","..y..","..z.."])\n{\n")
+	intend_content(obj, 1)
+	update_content(obj, obj_1.scad_content)
+	intend_content(obj, -1)
+	update_content(obj, "}\n")
+	obj_1.scad_content = obj.scad_content
+	return obj_1
+end
+
+--[[----------------------------------------
+	fuction <cad>:resize(x,y,z)
+	
+	resize an object in x,y,z if any of the axes is zero will automatically scale
+--]]----------------------------------------
+function cad_meta.__index.resize(obj_1, x,y,z, auto_x,auto_y,auto_z)
+	local auto_x = (not auto_x and false) or true
+	local auto_y = (not auto_y and false) or true
+	local auto_z = (not auto_z and false) or true
+	local obj = cad_obj()
+	update_content(obj, "resize(["..x..","..y..","..z.."], auto=["..tostring(auto_x)..","..tostring(auto_y)..","..tostring(auto_z).."])\n{\n")
 	intend_content(obj, 1)
 	update_content(obj, obj_1.scad_content)
 	intend_content(obj, -1)
@@ -823,19 +885,97 @@ cad_meta.__sub = function (a,b)
 	return a:sub(b)
 end
 
+--[[--------------------------------------------------------------------------------
+	CAD UTILITY Functions
+--]]--------------------------------------------------------------------------------
 
 
--- add aditonal presets of colors here
-local color_rgb = {
-	["white"] = {1.0,1.0,1.0},
-	["black"] = {0,0,0},
-	["red"] = {1.0,0,0},
-	["green"] = {0,1.0,0},
-	["blue"] = {0,0,1.0},
-	["cyan"] = {0,1.0,1.0},
-	["magenta"] = {1.0,0,1.0},
-	["yellow"] = {1.0,1.0,0},
+--[[----------------------------------------
+	function cad.export(filename, obj_1 [, obj_2, obj_n])
+	exports all objects into one file
+	
+	Export 2D: dxf, svg
+	Export 3D: stl
+	Export 3D color: wrl, x3d, obj
+	
+	Export to dxf, svg, stl or obj with color color = {r,g,b}
+--]]----------------------------------------
+local f_ext = {
+	-- 2D
+	[".dxf"] = function(file, objs)
+		local obj = objs[1]
+		for i=2,#objs do
+			obj:add(objs[i])
+		end
+		obj:export(file)
+	end,
+	[".svg"] = function(file, objs)
+		local obj = objs[1]
+		for i=2,#objs do
+			obj:add(objs[i])
+		end
+		obj:export(file)
+	end,
+	[".stl"] = function(file, objs)
+		local obj = objs[1]
+		for i=2,#objs do
+			obj:add(objs[i])
+		end
+		obj:export(file)
+	end,
+	[".obj"] = function(file, objs)
+		local t_files = {}
+		local t_colors = {}
+		for i,v in ipairs(objs) do
+			local fname = cad.settings.tmpfile.."_"..i..".stl"
+			v:export(fname)
+			table.insert(t_files, fname)
+			table.insert(t_colors, v.color)
+		end
+		cad.stl.toobj(file, t_files, t_colors)
+		for i,v in ipairs(t_files) do
+			os.remove(v)
+		end
+	end,
+	[".wrl"] = function(file, objs)
+		local t_files = {}
+		local t_colors = {}
+		for i,v in ipairs(objs) do
+			local fname = cad.settings.tmpfile.."_"..i..".stl"
+			v:export(fname)
+			table.insert(t_files, fname)
+			table.insert(t_colors, v.color)
+		end
+		cad.stl.towrl(file, t_files, t_colors)
+		for i,v in ipairs(t_files) do
+			os.remove(v)
+		end
+	end,
 }
+function cad.export(filename, ...)
+	local objs = {...}
+	-- check extension
+	local ext = string.lower(string.sub(filename, -4, -1))
+	
+	local f = f_ext[ext]
+	if not f then
+		error("cad.export, unknown extension "..ext)
+	end
+	f(filename, objs)
+end
+
+--[[--------------------------------------------------------------------------------
+	STL FUNCTIONS
+--]]--------------------------------------------------------------------------------
+
+cad.stl = {}
+
+function cad.stl.write(filename, s_stl)
+	local f,err = io.open(filename, "w")
+	if err then error(err) end
+	f:write(s_stl)
+	f:close()
+end
 
 --/////////////////////////////////////////////////////////////////
 -- import ASCII STL file
@@ -869,34 +1009,6 @@ local function cad_import_stl(filename)
 	return t_faces
 end
 
---[[--------------------------------------------------------------------------------
-	CAD Export Function
---]]--------------------------------------------------------------------------------
-
---[[----------------------------------------
-	function cad.export(filename, obj_1 [, obj_2, obj_n])
-	
-	exports all objects into one file
---]]----------------------------------------
-function cad.export(x,y,z, length, height)
-	local t_points = {
-		{0,0,0},{length,0,0},{length,length,0},{0,length,0},
-		{length/2,length/2,height}
-	}
-	local t_faces = {
-		{0,1,4},{1,2,4},{2,3,4},{3,0,4},{3,2,1,0}
-	}
-	local obj = cad.polyhedron(x,y,z, t_points, t_faces)
-	return obj
-end
-
-
---[[--------------------------------------------------------------------------------
-	FILE IO SUPPORT
---]]--------------------------------------------------------------------------------
-
-cad.io = {}
-
 --[[
 	Convert ASCII STL file to OBJ (wavefront file) with optional coloring
 	Info:
@@ -908,8 +1020,8 @@ cad.io = {}
 -- export t_faces structure to OBJ (wavefront) file
 -- filename: full filepath to obj file
 -- t_faces a t_faces structure
--- color is optional and has to be a table holding three r,g,b, numbers e.g. {[0,255],[0,255],[0,255]} or a string e.g. "white"
-cad.io.stltoobj = function(obj_filename, t_stl_filenames, t_colors)
+-- color is optional and has to be a table holding three r,g,b, numbers e.g. {[0,1],[0,1],[0,1]} or a string e.g. "white"
+cad.stl.toobj = function(obj_filename, t_stl_filenames, t_colors)
 
 	-- strip only filename
 	local filename = string.match(obj_filename,"([^\\/]+)%.%S%S%S$")
@@ -925,7 +1037,7 @@ cad.io.stltoobj = function(obj_filename, t_stl_filenames, t_colors)
 		if color_rgb[v] then
 			color = color_rgb[v]
 		else
-			color = {v[1]/255,v[2]/255,v[3]/255}
+			color = {v[1],v[2],v[3]}
 		end
 		local mtl_color = "color_["..string.format("%.06f-%.06f-%.06f",color[1], color[2], color[3]).."]_"..i
 		file:write(
@@ -1008,8 +1120,8 @@ end
 --/////////////////////////////////////////////////////////////////
 -- export stl to wrl 2.0
 -- filename: full filepath to obj file
--- color is optional and has to be a table holding three r,g,b, numbers e.g. {[0,255],[0,255],[0,255]} or a string e.g. "white"
-cad.io.stltowrl = function(wrl_filename, t_stl_filenames, t_colors)
+-- color is optional and has to be a table holding three r,g,b, numbers e.g. {[0,1],[0,1],[0,1]} or a string e.g. "white"
+cad.stl.towrl = function(wrl_filename, t_stl_filenames, t_colors)
 
 	-- strip only filename
 	local filename = string.match(wrl_filename,"([^\\/]+)%.%S%S%S$")
@@ -1034,7 +1146,7 @@ cad.io.stltowrl = function(wrl_filename, t_stl_filenames, t_colors)
 			if color_rgb[col] then
 				col = color_rgb[v]
 			else
-				col = {col[1]/255,col[2]/255,col[3]/255}
+				col = {col[1],col[2],col[3]}
 			end
 			file:write("\tappearance Appearance {\n")
 			file:write("\t\tmaterial Material {\n")
@@ -1069,18 +1181,6 @@ cad.io.stltowrl = function(wrl_filename, t_stl_filenames, t_colors)
 	file:close()
 end
 
---[[--------------------------------------------------------------------------------
-	STL DIRECT SUPPORT
---]]--------------------------------------------------------------------------------
-
-cad.stl = {}
-
-function cad.stl.write(filename, s_stl)
-	local f,err = io.open(filename, "w")
-	if err then error(err) end
-	f:write(s_stl)
-	f:close()
-end
 
 function cad.stl.cube(x,y,z, width,height,depth)
 

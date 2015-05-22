@@ -16,8 +16,10 @@
 -- Paths
 
 local openscad_settings = {
-	executable = [["C:\Program Files\OpenSCAD\openscad.exe"]],
+	executable = [["C:\Program Files\OpenSCAD\openscad.com"]],
 	scadfile = [[D:\Temp\lua_openscad_tmp.scad]],
+	tmpfile = [[D:\Temp\lua_cad_tmp]],
+	default_segments = 12,
 	include= ""
 }
 
