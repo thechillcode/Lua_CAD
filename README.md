@@ -14,7 +14,7 @@ Main Features:
 Installation:
 * copy all files to your Lua Home Directory
 * Install OpenSCAD if not already installed
-* Open the settings file and remove the _ at the end
+* Open the settings file and edit needed parameters
 * Enter correct paths for the settings file
 
 Run some of the example files
